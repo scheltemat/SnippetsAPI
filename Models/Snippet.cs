@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace SnippetsAPI.Models
 {
@@ -22,6 +23,7 @@ namespace SnippetsAPI.Models
         public int UserId { get; set; }
         
         // Navigation property
-        public User User { get; set; }
+        [JsonIgnore]
+        public User? User { get; set; }
     }
 }

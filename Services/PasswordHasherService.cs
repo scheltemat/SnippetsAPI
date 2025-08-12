@@ -6,6 +6,7 @@ namespace SnippetsAPI.Services
     public interface IPasswordHasherService
     {
         string HashPassword(string password);
+        bool VerifyPassword(string hashedPassword, string passwordToCheck);
     }
     public class PasswordHasherService : IPasswordHasherService
     {
@@ -26,6 +27,25 @@ namespace SnippetsAPI.Services
 
             // Store salt and hash together (Base64)
             return $"{Convert.ToBase64String(salt)}.{hashed}";
+        }
+
+        public bool VerifyPassword(string hashedPassword, string passwordToCheck)
+        {
+            var parts = hashedPassword.Split('.');
+            if (parts.Length != 2)
+                return false;
+
+            byte[] salt = Convert.FromBase64String(parts[0]);
+            string hash = parts[1];
+
+            string hashToCheck = Convert.ToBase64String(KeyDerivation.Pbkdf2(
+                password: passwordToCheck,
+                salt: salt,
+                prf: KeyDerivationPrf.HMACSHA256,
+                iterationCount: 10000,
+                numBytesRequested: 256 / 8));
+
+            return hash == hashToCheck;
         }
     }
 }

@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SnippetsAPI.Data;
@@ -18,8 +21,32 @@ builder.Services.AddControllers()
 
 builder.Services.AddSwaggerGen();
 
+// Register services
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+builder.Services.AddScoped<IJwtService, JwtService>();
+
+// Configure JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var secretKey = jwtSettings["SecretKey"] ?? "MySuperSecretKeyThatShouldBeAtLeast32CharactersOrSomethingIGuess!";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings["Issuer"] ?? "SnippetsAPI",
+            ValidateAudience = true,
+            ValidAudience = jwtSettings["Audience"] ?? "SnippetsAPIUsers",
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -36,7 +63,7 @@ using (var scope = app.Services.CreateScope())
 
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasherService>();
 
-    // Seed users
+    // Seed users first
     if (!db.Users.Any())
     {
         var jsonData = File.ReadAllText("seed/Users.json");
@@ -54,7 +81,6 @@ using (var scope = app.Services.CreateScope())
                     user.Password = passwordHasher.HashPassword(user.Password);
                 }
             }
-
             db.Users.AddRange(users);
             db.SaveChanges();
         }
@@ -65,7 +91,7 @@ using (var scope = app.Services.CreateScope())
     {
         var firstUser = db.Users.First();
         var encryptionService = scope.ServiceProvider.GetRequiredService<IEncryptionService>();
-
+        
         var jsonData = File.ReadAllText("seed/Snippets.json");
         var options = new JsonSerializerOptions
         {
@@ -77,10 +103,9 @@ using (var scope = app.Services.CreateScope())
             foreach (var snippet in snippets)
             {
                 snippet.UserId = firstUser.Id;
-                // Encrypt the code before saving
                 snippet.EncryptedCode = encryptionService.Encrypt(snippet.Code);
             }
-
+            
             db.Snippets.AddRange(snippets);
             db.SaveChanges();
         }
@@ -92,9 +117,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
 app.UseRouting();
-app.MapControllers();
+
+app.UseAuthentication(); // Add this before UseAuthorization
+app.UseAuthorization();
+
+app.UseEndpoints(endpoints =>
+{
+    endpoints.MapControllers();
+});
 
 app.MapGet("/", () => Results.Ok("Application is running!"));
 
